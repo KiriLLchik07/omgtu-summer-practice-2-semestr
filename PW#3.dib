@@ -32,8 +32,6 @@
 
 #!csharp
 
-#!csharp
-
 using System.Threading;
 //
 // Вычисление определенного интеграла
