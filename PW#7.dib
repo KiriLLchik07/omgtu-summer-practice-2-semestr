@@ -17,10 +17,132 @@
 
 #!csharp
 
+using System.Collections.Concurrent;
+using System.Threading;
+using System.Collections.Generic;
+
 public interface ICommand
 {
     void Execute();
 }
+
+#!csharp
+
+public class ServerThread
+{
+    private BlockingCollection<ICommand> _commandQueue = new BlockingCollection<ICommand>();
+    private Thread _thread;
+    private bool _isRunning = true;
+
+    public ServerThread()
+    {
+        _thread = new Thread(Run);
+        _thread.Start();
+    }
+
+    private void Run()
+    {
+        while (_isRunning)
+        {
+            try
+            {
+                var command = _commandQueue.Take();
+                command.Execute();
+            }
+            catch (InvalidOperationException)
+            {
+
+            }
+        }
+    }
+
+    public void AddCommand(ICommand command)
+    {
+        _commandQueue.Add(command);
+    }
+
+    public void HardStop()
+    {
+        _isRunning = false;
+        _commandQueue.CompleteAdding();
+        _thread.Join();
+    }
+
+    public void SoftStop()
+    {
+        _isRunning = false;
+    }
+}
+
+#!csharp
+
+public class HardStop : ICommand
+{
+    private ServerThread _serverThread;
+
+    public HardStop(ServerThread serverThread)
+    {
+        _serverThread = serverThread;
+    }
+
+    public void Execute()
+    {
+        _serverThread.HardStop();
+    }
+}
+
+#!csharp
+
+public class SoftStop : ICommand
+{
+    private ServerThread _serverThread;
+
+    public SoftStop(ServerThread serverThread)
+    {
+        _serverThread = serverThread;
+    }
+
+    public void Execute()
+    {
+        _serverThread.SoftStop();
+    }
+}
+
+#!csharp
+
+public class Comande : ICommand
+{
+    public void Execute()
+    {
+        Console.WriteLine("Команда выполнена");
+    }
+}
+
+#!csharp
+
+public static void Test()
+    {
+        ServerThread serverThread = new ServerThread();
+        serverThread.AddCommand(new Comande());
+        serverThread.AddCommand(new Comande());
+        serverThread.AddCommand(new Comande());
+        serverThread.AddCommand(new SoftStop(serverThread));
+        serverThread.AddCommand(new Comande());
+       
+        Thread.Sleep(2000);
+        Console.WriteLine("Soft-Test завершен");
+        serverThread.AddCommand(new Comande()); 
+        serverThread.AddCommand(new Comande()); 
+        serverThread.AddCommand(new Comande());
+        serverThread.AddCommand(new HardStop(serverThread));
+        serverThread.AddCommand(new Comande());
+        Thread.Sleep(2000);
+        
+        
+        Console.WriteLine("Hard-Test завершен");
+    }
+
+Test();
 
 #!markdown
 
