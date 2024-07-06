@@ -1,0 +1,212 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"languageName":"csharp","name":"csharp"}]}}
+
+#!markdown
+
+# Практическая работа №9. Реализация длительных операций.
+
+**Цель:** Предоставить возможность выполннеия команд, для полного завершения которых требуется более одного вызова Execute.
+
+**Результаты:** После выполнения работы Вы сможете:
+1. Выполнять длительные опреации в отдельном потоке без монопольного использования потока в течение длительного времени.
+3. Прерывать выполнение таких команд. 
+
+
+## Задание.
+Если для полного выполнения командв потребуется более одного вызова Execute, необходимо такую команду добавить в планировщик.
+
+Для иллюстрации выполнненой работы определить команду
+
+#!csharp
+
+using System.Collections.Concurrent;
+using System.Threading;
+
+public interface ICommand
+{
+    void Execute();
+    int Count { get; set; }
+}
+
+public class HardStopCommand : ICommand
+{
+    public int Count { get; set; } = 1;
+
+    public void Execute()
+    {
+        Console.WriteLine("Выполняется HardStop");
+        throw new ThreadInterruptedException();
+    }
+}
+
+public class SoftStopCommand : ICommand
+{
+    public int Count { get; set; } = 1;
+
+    public void Execute()
+    {
+        Console.WriteLine("Выполняется SoftStop");
+    }
+}
+
+
+public class TestCommand : ICommand
+{
+    
+    private int id;
+    private int counter = 0;
+
+    public TestCommand(int id)
+    {
+        this.id = id;
+    }
+
+    public int Count { get; set; } = 3;
+
+    public void Execute()
+    {
+        Console.WriteLine($"Поток {id} вызов {++counter}");
+    }
+}
+
+#!csharp
+
+public interface IScheduler
+{
+    bool HasCommand();
+    ICommand Select();
+    void Add(ICommand cmd);
+}
+
+public class RoundRobinScheduler : IScheduler
+{
+    private ConcurrentQueue<ICommand> commands = new ConcurrentQueue<ICommand>();
+
+    public bool HasCommand()
+    {
+        return !commands.IsEmpty;
+    }
+
+    public ICommand Select()
+    {
+        if (commands.TryDequeue(out ICommand command))
+        {
+            return command;
+        }
+        return null;
+    }
+
+    public void Add(ICommand cmd)
+    {
+        commands.Enqueue(cmd);
+    }
+}
+
+#!csharp
+
+public class ServerThread
+{
+    private ConcurrentQueue<ICommand> newCommands = new ConcurrentQueue<ICommand>();
+    private IScheduler scheduler = new RoundRobinScheduler();
+    private Thread thread;
+    private bool isRunning = false;
+
+    public ServerThread()
+    {
+        thread = new Thread(Run);
+        thread.Start();
+    }
+
+    public void EnqueueCommand(ICommand command)
+    {
+        newCommands.Enqueue(command);
+    }
+
+    public void HardStop()
+    {
+        if (Thread.CurrentThread == thread)
+        {
+            EnqueueCommand(new HardStopCommand());
+        }
+        else
+        {
+            throw new InvalidOperationException("HardStop может быть вызван только в текущем потоке");
+        }
+    }
+
+    public void SoftStop()
+    {
+        if (Thread.CurrentThread == thread)
+        {
+            EnqueueCommand(new SoftStopCommand());
+        }
+        else
+        {
+            throw new InvalidOperationException("SoftStop может быть вызван только в текущем потоке");
+        }
+    }
+
+    private void Run()
+    {
+        isRunning = true;
+        try
+        {
+            while (isRunning)
+            {
+                if (newCommands.TryDequeue(out ICommand command))
+                {
+                    scheduler.Add(command);
+                }
+
+                while (scheduler.HasCommand())
+                {
+                    try
+                    {
+                        command = scheduler.Select();
+                        if (command != null)
+                        {
+                            command.Execute();
+                            command.Count--;
+                            if (command.Count > 0)
+                            {
+                                scheduler.Add(command);
+                            }
+                        }
+                        else
+                        {
+                            Thread.Sleep(10);
+                            break;
+                        }
+                    }
+                    catch (ThreadInterruptedException)
+                    {
+                        Console.WriteLine("Поток завершен");
+                        isRunning = false;
+                        break;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            isRunning = false;
+        }
+    }
+
+    public Thread GetThread() => thread;
+}
+
+#!csharp
+
+var serverThread = new ServerThread();
+for (int i = 1; i <= 5; i++)
+{
+    serverThread.EnqueueCommand(new TestCommand(i) { Count = 3 });
+}
+serverThread.EnqueueCommand(new HardStopCommand());
+serverThread.GetThread().Join();
+
+#!markdown
+
+Необходимо проиллюстрировать выполнение 5 экземпляров TestCommand 3 раза, затем остановить поток с помощью HardStop.
