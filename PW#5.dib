@@ -60,7 +60,37 @@ using System.Collections.Concurrent;
 var queue1 = new BlockingCollection<Message>(2); //очередь первого потока
 var queue2 = new BlockingCollection<Message>(2); //очередь второго потока
 
-// Здесь писать решение
+Thread thread1 = new Thread(() => Produce(queue1, queue2));
+Thread thread2 = new Thread(() => Consume(queue2, queue1));
+
+thread1.Start();
+thread2.Start();
+
+queue1.Add(new Message());
+
+thread1.Join();
+thread2.Join();
+        
+Message.Check();
+
+static void Produce(BlockingCollection<Message> inputQueue, BlockingCollection<Message> outputQueue)
+{   
+    for (int i = 1; i <= 100; i++)
+    {
+        inputQueue.Take().Handle();     
+        outputQueue.Add(new Message());
+        if (i == 100){break;}
+    }
+}
+static void Consume(BlockingCollection<Message> inputQueue, BlockingCollection<Message> outputQueue) 
+{   
+    for (int i = 1; i <= 100; i++)
+    {
+        inputQueue.Take().Handle();
+        if (i == 100){break;}
+        outputQueue.Add(new Message());
+    }
+}
 
 #!csharp
 
